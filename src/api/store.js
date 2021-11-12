@@ -108,6 +108,7 @@ function Store (data, setters) {
 		// Functions and setters
 		_fns: {value: []},
 		_setters: {value: setters}
+
 	});
 
 	// Emit a custom event
