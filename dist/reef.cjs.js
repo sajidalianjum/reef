@@ -1,145 +1,7 @@
-/*! reef v11.0.0BETA | (c) 2021 Chris Ferdinandi | MIT License | http://github.com/cferdinandi/reef */
+/*! reef v11.BETA | (c) 2021 Chris Ferdinandi | MIT License | http://github.com/cferdinandi/reef */
 'use strict';
 
 Object.defineProperty(exports, '__esModule', { value: true });
-
-/**
- * Debounce functions for better performance
- * @param  {Instance} instance The current instantiation
- */
-function debounce(instance) {
-
-	// If there's a pending render, cancel it
-	if (instance._debounce) {
-		window.cancelAnimationFrame(instance.debounce);
-	}
-
-	// Setup functions to run at the next animation frame
-	instance._debounce = window.requestAnimationFrame(function () {
-		for (let fn of instance.fns) {
-			fn.call(instance);
-		}
-	});
-
-}
-
-/**
- * Create settings and getters for data Proxy
- * @param  {Instance} instance The current instantiation
- * @return {Object}            The setter and getter methods for the Proxy
- */
-function handler (instance) {
-	return {
-		get: function (obj, prop) {
-			if (typeof obj[prop] === 'object') {
-				return new Proxy(obj[prop], handler(instance));
-			}
-			return obj[prop];
-		},
-		set: function (obj, prop, value) {
-			if (obj[prop] === value) return true;
-			obj[prop] = value;
-			debounce(instance);
-			return true;
-		},
-		deleteProperty: function (obj, prop) {
-			delete obj[prop];
-			debounce(instance);
-			return true;
-		}
-	};
-}
-
-/**
- * Create a proxy from an array or object
- * @param  {*}        data     The array or object to proxify
- * @param  {Instance} instance The constructor instance
- * @return {Proxy}             The proxy
- */
-function proxify (data, instance) {
-
-	// If an object, make a Proxy
-	if (typeof data === 'object') {
-		data = new Proxy(data, handler(instance));
-	}
-
-	// Return data back out
-	return data;
-
-}
-
-/**
- * The Store object
- * @param {*} data Date to store
- */
-function Store (data) {
-
-	// Proxify the data
-	data = proxify(data, this);
-
-	// Define properties
-	this._debounce = null;
-	Object.defineProperties(this, {
-		data: {
-			get: function () {
-				return data;
-			},
-			set: function (val) {
-
-				// If an object, make a Proxy
-				data = proxify(val, this);
-
-				// Run functions
-				debounce(this);
-
-				return true;
-
-			}
-		},
-		fns: {value: []}
-	});
-
-}
-
-/**
- * Add functions to run on state update
- * @param  {...Function} fns One or more functions to run on state update
- */
-Store.prototype.do = function (...fns) {
-	for (let fn of fns) {
-		if (this.fns.includes(fn)) continue;
-		this.fns.push(fn);
-	}
-};
-
-/**
- * Stop functions from running on state update
- * @param  {...Function} fns One or more functions to stop
- */
-Store.prototype.stop = function (...fns) {
-	for (let fn of fns) {
-		let index = this.fns.indexOf(fn);
-		if (index < 0) return;
-		this.fns.splice(index, 1);
-	}
-};
-
-Store.prototype.run = function () {
-	debounce(this);
-};
-
-function text (el, fn) {
-
-	// Get the target element
-	let elem = typeof el === 'string' ? document.querySelector(el) : el;
-	if (!elem) throw `Element not found: ${el}`;
-
-	// Render the content
-	return function () {
-		elem.textContent = fn(this.data);
-	};
-
-}
 
 /**
  * Convert the string to an HTML document
@@ -235,30 +97,364 @@ function isFalsy (str) {
 	return ['false', 'null', 'undefined', '0', '-0', 'NaN', '0n', '-0n'].includes(str);
 }
 
-function html (el, fn) {
-
-	// Get the target element
-	let elem = typeof el === 'string' ? document.querySelector(el) : el;
-	if (!elem) throw `Element not found: ${el}`;
-
-	// Render the content
+/**
+ * Debounce functions for better performance
+ * @param  {Function} fn The function to debounce
+ */
+function debounce (fn) {
 	return function () {
-		elem.innerHTML = clean(fn(this.data));
+
+		// Setup the arguments
+		let context = this;
+		let args = arguments;
+
+		// If there's a timer, cancel it
+		if (context._debounce) {
+			window.cancelAnimationFrame(context._debounce);
+		}
+
+		// Setup the new requestAnimationFrame()
+		context._debounce = window.requestAnimationFrame(function () {
+			fn.apply(context, args);
+		});
+
 	};
+}
+
+/**
+ * Get properties for an instance
+ * @param  {Instance} instance The instance
+ * @return {Array}             The properties
+ */
+function props (instance) {
+	return instance.$.map(function (prop) {
+		return prop.$;
+	});
+}
+
+/**
+ * Emit a custom event
+ * @param  {String} type   The event type
+ * @param  {Object} detail Any details to pass along with the event
+ * @param  {Node}   elem   The element to attach the event to
+ */
+function emit (type, detail = {}, elem = document) {
+
+	// Make sure there's an event type
+	if (!type) return;
+
+	// Create a new event
+	let event = new CustomEvent(`reef:${type}`, {
+		bubbles: true,
+		cancelable: true,
+		detail: detail
+	});
+
+	// Dispatch the event
+	return elem.dispatchEvent(event);
 
 }
 
-function htmlUnsafe (el, fn) {
+/**
+ * Create an immutable clone of data
+ * @param  {*} obj The data object to copy
+ * @return {*}     The clone of the array or object
+ */
+function copy (obj) {
 
-	// Get the target element
-	let elem = typeof el === 'string' ? document.querySelector(el) : el;
-	if (!elem) throw `Element not found: ${el}`;
+	/**
+	 * Create an immutable copy of an object
+	 * @return {Object}
+	 */
+	function cloneObj () {
+		let clone = {};
+		for (let key in obj) {
+			if (Object.prototype.hasOwnProperty.call(obj, key)) {
+				clone[key] = copy(obj[key]);
+			}
+		}
+		return clone;
+	}
 
-	// Render the content
-	return function () {
-		elem.innerHTML = fn(this.data);
+	/**
+	 * Create an immutable copy of an array
+	 * @return {Array}
+	 */
+	function cloneArr () {
+		return obj.map(function (item) {
+			return copy(item);
+		});
+	}
+
+	// Get object type
+	let type = Object.prototype.toString.call(obj).slice(8, -1).toLowerCase();
+
+	// Return a clone based on the object type
+	if (type === 'object') return cloneObj();
+	if (type === 'array') return cloneArr();
+	return obj;
+
+}
+
+// Is debugging enabled
+let on = false;
+
+/**
+ * Turn debugging on or off
+ * @param  {Boolean} val If true, enables debugging
+ */
+function debug (val) {
+	on = !!val;
+}
+
+/**
+ * Show an error message in the console if debugging is enabled
+ * @param  {String} msg The message to log
+ */
+function err (msg) {
+	if (on) {
+		console.warn('[Reef] ' + msg);
+	}
+}
+
+/**
+ * Run attached functions
+ * @param  {Instance} instance The instantiation
+ */
+function run (instance) {
+	for (let fn of instance._fns) {
+		fn.run();
+	}
+}
+
+/**
+ * Create settings and getters for data Proxy
+ * @param  {Instance} instance The current instantiation
+ * @return {Object}            The setter and getter methods for the Proxy
+ */
+function handler (instance) {
+	return {
+		get: function (obj, prop) {
+			if (typeof obj[prop] === 'object') {
+				return new Proxy(obj[prop], handler(instance));
+			}
+			return obj[prop];
+		},
+		set: function (obj, prop, value) {
+			if (obj[prop] === value) return true;
+			obj[prop] = value;
+			run(instance);
+			return true;
+		},
+		deleteProperty: function (obj, prop) {
+			delete obj[prop];
+			run(instance);
+			return true;
+		}
 	};
+}
 
+/**
+ * Create a proxy from an array or object
+ * @param  {*}        data     The array or object to proxify
+ * @param  {Instance} instance The constructor instance
+ * @param  {Object}   setters  Setter functions for the instance
+ * @return {Proxy}             The proxy
+ */
+function proxify (data, instance, setters) {
+
+	// If an object, make a Proxy
+	if (!setters && typeof data === 'object') {
+		data = new Proxy(data, handler(instance));
+	}
+
+	// Return data back out
+	return data;
+
+}
+
+/**
+ * The Store object
+ * @param {*}      data    Data to store
+ * @param {Object} setters Setter functions (optional)
+ */
+function Store (data, setters) {
+
+	// Proxify the data
+	data = proxify(data, this, setters);
+
+	// Define properties
+	Object.defineProperties(this, {
+
+		// Data setters/getters
+		$: {
+			get: function () {
+				return setters ? copy(data) : data;
+			},
+			set: function (val) {
+
+				// If setters, do nothing
+				if (setters) return true;
+
+				// If an object, make a Proxy
+				data = proxify(val, this);
+
+				// Run functions
+				run(this);
+
+				return true;
+
+			}
+		},
+
+		/**
+		 * Run a setter function
+		 * @param  {String} key  The setter key
+		 * @param  {...*}   args The args for the setter function
+		 */
+		do: {
+			value: function (key, ...args) {
+				if (!this._setters) return err('No setters for this store.');
+				if (!this._setters[key]) return err(`There is no setter named "${key}"`);
+				this._setters[key](data, ...args);
+				run(this);
+			}
+		},
+
+		// Functions and setters
+		_fns: {value: []},
+		_setters: {value: setters}
+	});
+
+	// Emit a custom event
+	emit('store', this.$);
+
+}
+
+/**
+ * Instantiate a new store
+ * @param  {*}        data    Data to store
+ * @param  {Object}   setters Setter functions (optional)
+ * @return {Instance}         A new Store instance
+ */
+function store (data, setters) {
+	return new Store(data, setters);
+}
+
+/**
+ * Base constructor object for the API methods
+ * @param {String}   el The element seelctor (or the element itself)
+ * @param {Function} fn The function that returns a template string
+ */
+function Constructor (el, fn) {
+
+	// Get element
+	el = typeof el === 'string' ? document.querySelector(el) : el;
+	if (!el) return err('Element not found.');
+	if (!fn) return err('Please provide a function');
+
+	// Set properties
+	Object.defineProperties(this, {
+		el: {value: typeof el === 'string' ? document.querySelector(el) : el},
+		fn: {value: fn},
+		$: {value: []}
+	});
+	this._debounce = null;
+
+}
+
+/**
+ * Add stores to the instance
+ * @param  {...Store} props The Store instances to attach
+ */
+Constructor.prototype.use = function (...props) {
+	for (let $ of props) {
+		if (this.$.includes($)) continue;
+		this.$.push($);
+		$._fns.push(this);
+	}
+};
+
+/**
+ * Destroy the component
+ */
+Constructor.prototype.destroy = function () {
+	if (!emit('destroy-before', this)) return;
+	for (let $ of this.$) {
+		let index = $._fns.indexOf(this);
+		if (index < 0) continue;
+		$._fns.splice(index, 1);
+	}
+	emit('destroy', this);
+};
+
+/**
+ * Clone the Constructor object
+ * @return {Constructor} The cloned Constructor object
+ */
+function clone () {
+	function Clone (el, fn) {
+		Constructor.call(this, el, fn);
+	}
+	Clone.prototype = Object.create(Constructor.prototype);
+	return Clone;
+}
+
+// Add run method
+let Text = clone();
+Text.prototype.run = debounce(function () {
+	let $ = props(this);
+	if (!emit('text-before', $, this.el)) return;
+	this.el.textContent = this.fn(...$);
+	emit('text', $, this.el);
+});
+
+/**
+ * Instantiate a new Text instance
+ * @param  {String}   el The element selector (or element itself)
+ * @param  {Function} fn The function that returns the template string
+ * @return {Instance}    The instantiated instance
+ */
+function text (el, fn) {
+	return new Text(el, fn);
+}
+
+// Add run method
+let HTML = clone();
+HTML.prototype.run = debounce(function () {
+	let $ = props(this);
+	if (!emit('html-before', $, this.el)) return;
+	this.el.innerHTML = clean(this.fn(...$));
+	emit('html', $, this.el);
+});
+
+/**
+ * Instantiate a new HTML instance
+ * @param  {String}   el The element selector (or element itself)
+ * @param  {Function} fn The function that returns the template string
+ * @return {Instance}    The instantiated instance
+ */
+function html (el, fn) {
+	return new HTML(el, fn);
+}
+
+// Add run method
+let HTMLUnsafe = clone();
+HTMLUnsafe.prototype.run = debounce(function () {
+	let $ = props(this);
+	if (!emit('html-unsafe-before', $, this.el)) return;
+	this.el.innerHTML = this.fn(...$);
+	emit('html-unsafe', $, this.el);
+});
+
+/**
+ * Instantiate a new HTMLUnsafe instance
+ * @param  {String}   el The element selector (or element itself)
+ * @param  {Function} fn The function that returns the template string
+ * @return {Instance}    The instantiated instance
+ */
+function htmlUnsafe (el, fn) {
+	return new HTMLUnsafe(el, fn);
 }
 
 // Form fields and attributes that can be modified by users
@@ -519,35 +715,48 @@ function diff (template, existing) {
 
 }
 
+// Add run method
+let Diff = clone();
+Diff.prototype.run = debounce(function () {
+	let $ = props(this);
+	if (!emit('diff-before', $, this.el)) return;
+	diff(clean(this.fn(...$), true), this.el);
+	emit('diff', $, this.el);
+});
+
+/**
+ * Instantiate a new Diff instance
+ * @param  {String}   el The element selector (or element itself)
+ * @param  {Function} fn The function that returns the template string
+ * @return {Instance}    The instantiated instance
+ */
 function diff$1 (el, fn) {
-
-	// Get the target element
-	let elem = typeof el === 'string' ? document.querySelector(el) : el;
-	if (!elem) throw `Element not found: ${el}`;
-
-	// Render the content
-	return function () {
-		diff(clean(fn(this.data), true), elem);
-	};
-
+	return new Diff(el, fn);
 }
 
+// Add run method
+let DiffUnsafe = clone();
+DiffUnsafe.prototype.run = debounce(function () {
+	let $ = props(this);
+	if (!emit('diff-unsafe-before', $, this.el)) return;
+	diff(stringToHTML(this.fn(...$)), this.el);
+	emit('diff-unsafe', $, this.el);
+});
+
+/**
+ * Instantiate a new DiffUnsafe instance
+ * @param  {String}   el The element selector (or element itself)
+ * @param  {Function} fn The function that returns the template string
+ * @return {Instance}    The instantiated instance
+ */
 function diffUnsafe (el, fn) {
-
-	// Get the target element
-	let elem = typeof el === 'string' ? document.querySelector(el) : el;
-	if (!elem) throw `Element not found: ${el}`;
-
-	// Render the content
-	return function () {
-		diff(stringToHTML(fn(this.data)), elem);
-	};
-
+	return new DiffUnsafe(el, fn);
 }
 
-exports.Store = Store;
+exports.debug = debug;
 exports.diff = diff$1;
 exports.diffUnsafe = diffUnsafe;
 exports.html = html;
 exports.htmlUnsafe = htmlUnsafe;
+exports.store = store;
 exports.text = text;
