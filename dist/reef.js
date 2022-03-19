@@ -83,12 +83,25 @@ var Reef = (function () {
     		});
     	}
 
+        /**
+	 * Sanitize and encode HTML in a string
+	 * @return {String} The sanitized and encoded string
+	 */
+		function sanitizeStr() {
+			return obj.replace(/javascript:/gi, '').replace(/[^\w-_. ]/gi, function (c) {
+				return `&#${c.charCodeAt(0)};`;
+			});
+		}
+
+        
     	// Get object type
     	let type = getType(obj);
 
     	// Return a clone based on the object type
     	if (type === 'object') return cloneObj();
     	if (type === 'array') return cloneArr();
+    	if (type === 'string') return sanitizeStr();
+        
     	return obj;
 
     }
